@@ -1,0 +1,7 @@
+#pragma once
+
+class choose
+{
+public:
+	static void modechoose();
+};

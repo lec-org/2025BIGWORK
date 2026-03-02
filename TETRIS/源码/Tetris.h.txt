@@ -1,0 +1,49 @@
+#pragma once
+#include<easyx.h>
+#include<vector>
+#include"Block.h"
+using namespace std;
+
+class Tetris
+{
+public:
+	Tetris(int rows, int cols, int left, int top, int blockSize);
+	void init();
+	void play();
+
+private:
+	void keyEvent(ExMessage);
+	void updateWindow();
+	int getDelay();
+	void drop();
+	void clearLine();
+	void moveLeftRight(int offset);
+	void rotate();
+	void drawScore();
+	void checkOver();
+	void displayOver();
+	void dropToBottom();
+	void drawDropPreview();
+
+private:
+	int delay;
+	bool update;
+
+	vector<vector<int>>map;
+	int rows;
+	int cols;
+	int leftMargin;
+	int topMargin;
+	int blockSize;
+	IMAGE imgBg1;
+	IMAGE imgBeginBg;
+	IMAGE imgReady;
+
+	Block* curBlock;
+	Block* nextBlock;
+	Block bakBlock;
+
+	int score;
+	int line;
+	bool gameOver;
+};

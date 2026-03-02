@@ -1,0 +1,747 @@
+#include "Tetris2.h"
+#include <stdlib.h>
+#include <time.h>
+#include "Block.h"
+#include"choose.h"
+
+const int SPEED_NORMAL = 500;
+const int SPEED_QUICK = 50;
+
+Tetris2::Tetris2(int rows, int cols, int left, int left2, int top, int blockSize)
+{
+	this->rows = rows;
+	this->cols = cols;
+	this->leftMargin = left;
+	this->leftMargin2 = left2;
+	this->topMargin = top;
+	this->blockSize = blockSize;
+
+	for (int i = 0; i < rows; i++) {
+		vector<int>mapRow;
+		for (int j = 0; j < cols; j++) {
+			mapRow.push_back(0);
+		}
+		map1.push_back(mapRow);
+		map2.push_back(mapRow);
+	}
+
+}
+
+void Tetris2::init()
+{
+	delay1 = SPEED_NORMAL;
+	delay2 = SPEED_NORMAL;
+	loadimage(&imgBg2, _T("res/bg2.png"));  //背景2
+	loadimage(&imgBeginBg, _T("res/多人教程.png"));  //教程
+	loadimage(&imgLeftReady, _T("res/左准备.png"));  //
+	loadimage(&imgRightReady, _T("res/右准备.png"));  //
+	loadimage(&imgAllReady, _T("res/都准备.png"));  //
+	for (int i = 0; i < rows; i++) {  //初始化地图1
+		for (int j = 0; j < cols; j++) {
+			map1[i][j] = 0;
+		}
+	}
+	for (int i = 0; i < rows; i++) {  //初始化地图2
+		for (int j = 0; j < cols; j++) {
+			map2[i][j] = 0;
+		}
+	}
+
+	score1 = 0;
+	line1 = 0;
+	score2 = 0;
+	line2 = 0;
+	add1 = 0;
+	add2 = 0;
+	gameOver = false;
+}
+
+void Tetris2::play()
+{
+	init();
+	putimage(0, 0, &imgBeginBg);
+	bool p1 = false;
+	bool p2 = false;
+
+	ExMessage msg = { 0 };
+
+	while (1) {
+		peekmessage(&msg, EX_KEY);
+		if (msg.message == WM_KEYDOWN) {
+			if (msg.vkcode == VK_SPACE || msg.vkcode == 'W' || msg.vkcode == 'S' || msg.vkcode == 'A' || msg.vkcode == 'D') {
+				p1 = true;	
+				if (p1 && !p2) putimage(0, 0, &imgLeftReady);
+				if(p1 && p2) putimage(0, 0, &imgAllReady);
+				Sleep(100);
+			}
+			else if (msg.vkcode == 'P' || msg.vkcode == VK_OEM_1 || msg.vkcode == 'L' || msg.vkcode == VK_OEM_7 || msg.vkcode == VK_OEM_PERIOD
+				|| msg.vkcode == VK_OEM_2 || msg.vkcode == VK_OEM_COMMA) {
+				p2 = true;
+				if (!p1 && p2) putimage(0, 0, &imgRightReady);
+				if (p1 && p2) putimage(0, 0, &imgAllReady);
+				Sleep(100);
+			}
+		}
+		msg.message = 0;
+		if (p1 && p2) {
+			break;
+		}
+		Sleep(10);
+	}
+
+	//待机结束
+
+	nextBlock1 = new Block(blockSize);
+	curBlock1 = nextBlock1;
+	nextBlock1 = new Block(blockSize);
+
+	nextBlock2 = new Block(blockSize);
+	curBlock2 = nextBlock2;
+	nextBlock2 = new Block(blockSize);
+
+
+	int timer1 = 0;
+	int timer2 = 0;
+
+	while (1) {
+		peekmessage(&msg, EX_KEY);
+		if (msg.message == WM_KEYDOWN) keyEvent(msg);
+		msg.message = 0;
+
+		timer1 += getDelay1();
+		timer2 += getDelay2();
+
+		if (timer1 > delay1) {
+			timer1 = 0;
+			update1 = true;
+		}
+		if (timer2 > delay2) {
+			timer2 = 0;
+			update2 = true;
+		}
+		if (update1) {
+			update1 = false;
+			drop1();
+			clearLine1();
+			updateWindow();
+		}
+		if (update2) {
+			update2 = false;
+			drop2();
+			clearLine2();
+			updateWindow();
+		}
+		if (gameOver) {
+			displayOver();
+
+		}
+	}
+}
+
+void Tetris2::keyEvent(ExMessage msg)
+{
+	bool rotateFlag1 = false;
+	bool rotateFlag2 = false;
+	int dx1 = 0;
+	int dx2 = 0;
+
+	switch (msg.vkcode) {
+		//1
+	case 'W':
+		rotateFlag1 = true;
+		break;
+	case 'S':
+		delay1 = SPEED_QUICK;
+		update1 = true;
+		break;
+	case 'A':
+		dx1 = -1;
+		break;
+	case 'D':
+		dx1 = 1;
+		break;
+	case VK_SPACE:
+		dropToBottom1();
+		update1 = true;
+		break;
+		//2
+	case 'P':
+		rotateFlag2 = true;
+		break;
+	case VK_OEM_1:
+		delay2 = SPEED_QUICK;
+		update2 = true;
+		break;
+	case 'L':
+		dx2 = -1;
+		break;
+	case VK_OEM_7:
+		dx2 = 1;
+		break;
+	case VK_OEM_PERIOD:
+		dropToBottom2();
+		update2 = true;
+		break;
+	case VK_OEM_2:
+		dropToBottom2();
+		update2 = true;
+		break;
+	case VK_OEM_COMMA:
+		dropToBottom2();
+		update2 = true;
+		break;
+	}
+
+	if (rotateFlag1) {
+		rotate1();
+		updateWindow();
+	}
+	if (rotateFlag2) {
+		rotate2();
+		updateWindow();
+	}
+
+	if (dx1 != 0) {
+		moveLeftRight1(dx1);
+		updateWindow();
+	}
+	if (dx2 != 0) {
+		moveLeftRight2(dx2);
+		updateWindow();
+	}
+}
+
+void Tetris2::updateWindow()
+{
+	BeginBatchDraw();
+	putimage(0, 0, &imgBg2);
+
+	IMAGE* imgs = Block::getImages();
+	IMAGE* garbageImg = Block::getGarbageImage();
+	
+	for (int i = 0; i < rows; i++) {
+		for (int j = 0; j < cols; j++) {
+			if (map1[i][j] == 0) continue;
+
+			int x = j * blockSize + leftMargin;  //左距离
+			int y = i * blockSize + topMargin;
+			if (map1[i][j] == 8) {
+				putimage(x, y, garbageImg);
+			}
+			else {
+				putimage(x, y, imgs);
+			}
+			
+		}
+	}
+	for (int i = 0; i < rows; i++) {
+		for (int j = 0; j < cols; j++) {
+			if (map2[i][j] == 0) continue;
+
+			int x = j * blockSize + leftMargin2;  // 左距离
+			int y = i * blockSize + topMargin;
+			if (map2[i][j] == 8) {
+				putimage(x, y, garbageImg);
+			}
+			else {
+				putimage(x, y, imgs);
+			}
+		}
+	}
+	drawDropPreview1();
+	drawDropPreview2();
+	
+	curBlock1->draw(leftMargin, topMargin);
+	curBlock2->draw(leftMargin2, topMargin);
+
+	//next绘制
+	nextBlock1->draw(483, 168);
+	nextBlock2->draw(1089, 168);
+
+	drawScore();
+
+	EndBatchDraw();
+}
+
+int Tetris2::getDelay1()
+{
+	static unsigned long long lastTime1 = 0;
+	unsigned long long currentTime = GetTickCount();
+
+	if (lastTime1 == 0) {
+		lastTime1 = currentTime;
+		return 0;
+	}
+	else {
+		int ret = currentTime - lastTime1;
+		lastTime1 = currentTime;
+		return ret;
+	}
+
+}
+
+int Tetris2::getDelay2()
+{
+	static unsigned long long lastTime2 = 0;
+	unsigned long long currentTime = GetTickCount();
+
+	if (lastTime2 == 0) {
+		lastTime2 = currentTime;
+		return 0;
+	}
+	else {
+		int ret = currentTime - lastTime2;
+		lastTime2 = currentTime;
+		return ret;
+	}
+
+}
+
+void Tetris2::drop1()
+{
+	bakBlock1 = *curBlock1;
+	curBlock1->drop();
+
+	if (curBlock1->blockInMap(map1) == false) {
+		bakBlock1.solidify(map1);
+		delete curBlock1;
+		curBlock1 = nextBlock1;
+		nextBlock1 = new Block(blockSize);
+
+		checkOver();
+	}
+	delay1 = SPEED_NORMAL;
+}
+
+void Tetris2::drop2()
+{
+	bakBlock2 = *curBlock2;
+	curBlock2->drop();
+
+	if (curBlock2->blockInMap(map2) == false) {
+		bakBlock2.solidify(map2);
+		delete curBlock2;
+		curBlock2 = nextBlock2;
+		nextBlock2 = new Block(blockSize);
+
+		checkOver();
+	}
+	delay2 = SPEED_NORMAL;
+}
+
+void Tetris2::clearLine1()
+{
+	int lines = 0;
+	int k = rows - 1;
+	for (int i = rows - 1; i >= 0; i--) {
+		int count = 0;
+		for (int j = 0; j < cols; j++) {
+			if (map1[i][j]) {
+				count++;
+			}
+			map1[k][j] = map1[i][j];
+		}
+
+		if (count < cols) {
+			k--;
+		}
+		else {
+			lines++;
+		}
+	}
+
+	if (lines > 0) {
+		int addScore[4] = { 10,30,60,100 };
+		score1 += addScore[lines - 1];
+		line1 += lines;
+		add1 += lines;
+		update1 = true;
+	}else add1to2();
+	
+}
+
+void Tetris2::clearLine2()
+{
+	int lines = 0;
+	int k = rows - 1;
+	for (int i = rows - 1; i >= 0; i--) {
+		int count = 0;
+		for (int j = 0; j < cols; j++) {
+			if (map2[i][j]) {
+				count++;
+			}
+			map2[k][j] = map2[i][j];
+		}
+
+		if (count < cols) {
+			k--;
+		}
+		else {
+			lines++;
+		}
+	}
+
+	if (lines > 0) {
+		//score
+		int addScore[4] = { 10,30,60,100 };
+		score2 += addScore[lines - 1];
+		line2 += lines;
+		add2 += lines;
+		update2 = true;
+	}else add2to1();
+}
+
+void Tetris2::moveLeftRight1(int offset)
+{
+	bakBlock1 = *curBlock1;
+	curBlock1->moveLeftRight(offset);
+
+	if (!curBlock1->blockInMap(map1)) {
+		*curBlock1 = bakBlock1;
+	}
+}
+
+void Tetris2::moveLeftRight2(int offset)
+{
+	bakBlock2 = *curBlock2;
+	curBlock2->moveLeftRight(offset);
+
+	if (!curBlock2->blockInMap(map2)) {
+		*curBlock2 = bakBlock2;
+	}
+}
+
+
+static const Point wallKickOffsets[] = {
+	{0, 0},   // 无偏移（原旋转位置）
+	{1, 0},   // 右移1格
+	{-1, 0},  // 左移1格
+	{0, 1},   // 下移1格
+	{0, -1},  // 上移1格
+	{1, 1},   // 右下1格
+	{-1, 1},  // 左下1格
+};
+// 偏移表长度
+static const int kickOffsetCount = sizeof(wallKickOffsets) / sizeof(Point);
+
+void Tetris2::rotate1()
+{
+	if (curBlock1->getBlockType() == 6) return;
+
+	bakBlock1 = *curBlock1;
+	curBlock1->rotate();
+
+	bool su = false;
+	for (int i = 0; i < kickOffsetCount; i++) {
+		int dx = wallKickOffsets[i].col;
+		int dy = wallKickOffsets[i].row;
+
+		curBlock1->moveLeftRight(dx);
+		for (int j = 0; j < 4; j++) {
+			curBlock1->smallBlocks[j].row += dy;
+		}
+		if (curBlock1->blockInMap(map1)) {
+			su = true;
+			break;
+		}
+		curBlock1->moveLeftRight(-dx);
+		for (int j = 0; j < 4; j++) {
+			curBlock1->smallBlocks[j].row -= dy;
+		}
+	}
+
+	if (!su) {
+		*curBlock1 = bakBlock1;
+	}
+}
+
+void Tetris2::rotate2()
+{
+	if (curBlock2->getBlockType() == 6) return;
+
+	bakBlock2 = *curBlock2;
+	curBlock2->rotate();
+
+	bool su = false;
+	for (int i = 0; i < kickOffsetCount; i++) {
+		int dx = wallKickOffsets[i].col;
+		int dy = wallKickOffsets[i].row;
+
+		curBlock2->moveLeftRight(dx);
+		for (int j = 0; j < 4; j++) {
+			curBlock2->smallBlocks[j].row += dy;
+		}
+		if (curBlock2->blockInMap(map2)) {
+			su = true;
+			break;
+		}
+		curBlock2->moveLeftRight(-dx);
+		for (int j = 0; j < 4; j++) {
+			curBlock2->smallBlocks[j].row -= dy;
+		}
+	}
+
+	if (!su) {
+		*curBlock2 = bakBlock2;
+	}
+}
+
+void Tetris2::drawScore()
+{
+	char scoreText1[32];
+	sprintf_s(scoreText1, sizeof(scoreText1), "%d", score1);
+	char scoreText2[32];
+	sprintf_s(scoreText2, sizeof(scoreText2), "%d", score2);
+
+	char lineText1[32];
+	sprintf_s(lineText1, sizeof(lineText1), "%d", line1);
+	char lineText2[32];
+	sprintf_s(lineText2, sizeof(lineText2), "%d", line2);
+
+	settextcolor(RGB(201, 201, 201));
+
+	LOGFONT f;
+	gettextstyle(&f);
+	f.lfHeight = 50;
+
+	f.lfQuality = ANTIALIASED_QUALITY;
+	strcpy_s(f.lfFaceName, sizeof(f.lfFaceName), "Geometos");
+	settextstyle(&f);
+	setbkmode(TRANSPARENT);
+
+	outtextxy(556, 704, scoreText1);
+	outtextxy(556, 598, lineText1);
+	outtextxy(1162, 704, scoreText2);
+	outtextxy(1162, 598, lineText2);
+}
+
+void Tetris2::checkOver()
+{
+	if (curBlock1->blockInMap(map1) == false) {
+		alose = true;
+		gameOver = true;
+	}else if(curBlock2->blockInMap(map2) == false) gameOver = true;
+}
+
+void Tetris2::displayOver() 
+{
+	setfillcolor(WHITE), setlinecolor(RGB(201, 201, 201));
+	setlinestyle(PS_SOLID | PS_ENDCAP_SQUARE, 3);
+	fillrectangle(210, 220, 590, 620);//1
+	fillrectangle(820, 220, 1200, 620);//2
+	if (alose == true) {
+		outtextxy(278, 245, _T("you lose"));
+		outtextxy(910, 245, _T("you win"));
+	}
+	else {
+		outtextxy(295, 245, _T("you win"));
+		outtextxy(895, 245, _T("you lose"));
+	}
+	
+
+	char scoreText1[32];
+	sprintf_s(scoreText1, sizeof(scoreText1), "%d", score1);//1
+	char lineText1[32];
+	sprintf_s(lineText1, sizeof(lineText1), "%d", line1);
+
+	char scoreText2[32];
+	sprintf_s(scoreText2, sizeof(scoreText2), "%d", score2);//2
+	char lineText2[32];
+	sprintf_s(lineText2, sizeof(lineText2), "%d", line2);
+
+	settextstyle(35, 0, "Geometos");
+	outtextxy(236, 325, "Lines Cleared");//1
+	outtextxy(235, 365, lineText1);
+	outtextxy(235, 425, "Total Score");
+	outtextxy(235, 465, scoreText1);
+
+	outtextxy(846, 325, "Lines Cleared");//2
+	outtextxy(845, 365, lineText2);
+	outtextxy(845, 425, "Total Score");
+	outtextxy(845, 465, scoreText2);
+
+	setlinestyle(PS_NULL);
+	setfillcolor(RGB(226, 226, 226));
+	fillrectangle(224, 568, 576, 608);//1
+	fillrectangle(834, 568, 1186, 608);//2
+	settextstyle(32, 0, "Geometos");
+	settextcolor(WHITE);
+	outtextxy(237, 572, "press r to restart");//1
+	outtextxy(847, 572, "press r to restart");//2
+
+	ExMessage msg = { 0 };
+	while (1) {
+		peekmessage(&msg, EX_KEY);
+		if (msg.message == WM_KEYDOWN) {
+			if (msg.vkcode == 'R') {
+				msg.message = 0;
+				choose::modechoose();
+			}
+		}
+		msg.message = 0;
+		Sleep(10);
+	}
+}
+
+void Tetris2::dropToBottom1()
+{
+	bakBlock1 = *curBlock1;
+
+	while (true) {
+		curBlock1->drop();
+
+		if (!curBlock1->blockInMap(map1))
+		{
+			*curBlock1 = bakBlock1;
+			curBlock1->solidify(map1);
+			break;
+		}
+
+		bakBlock1 = *curBlock1;
+	}
+
+	delete curBlock1;
+	curBlock1 = nextBlock1;
+	nextBlock1 = new Block(blockSize);
+
+	checkOver();
+	clearLine1();
+	delay1 = SPEED_NORMAL;
+}
+
+void Tetris2::dropToBottom2()
+{
+	bakBlock2 = *curBlock2;
+
+	while (true) {
+		curBlock2->drop();
+
+		if (!curBlock2->blockInMap(map2))
+		{
+			*curBlock2 = bakBlock2;
+			curBlock2->solidify(map2);
+			break;
+		}
+
+		bakBlock2 = *curBlock2;
+	}
+
+	delete curBlock2;
+	curBlock2 = nextBlock2;
+	nextBlock2 = new Block(blockSize);
+
+	checkOver();
+	clearLine2();
+	delay2 = SPEED_NORMAL;
+}
+
+void Tetris2::drawDropPreview1()
+{
+	if (gameOver || curBlock1 == nullptr || curBlock2 == nullptr) return;
+
+	Block previewBlock = *curBlock1;
+	Block bakPreview = previewBlock;
+
+	while (true)
+	{
+		previewBlock.drop();
+		if (!previewBlock.blockInMap(map1))
+		{
+			previewBlock = bakPreview;
+			break;
+		}
+		bakPreview = previewBlock;
+	}
+
+	IMAGE* previewImgs = Block::getPreviewImages();
+	for (int i = 0; i < 4; i++)
+	{
+		int x = leftMargin + previewBlock.smallBlocks[i].col * blockSize;  //左距离
+		int y = topMargin + previewBlock.smallBlocks[i].row * blockSize;
+		putimage(x, y, previewImgs);
+	}
+}
+
+void Tetris2::drawDropPreview2()
+{
+	if (gameOver || curBlock1 == nullptr || curBlock2 == nullptr) return;
+
+	Block previewBlock = *curBlock2;
+	Block bakPreview = previewBlock;
+
+	while (true)
+	{
+		previewBlock.drop();
+		if (!previewBlock.blockInMap(map2))
+		{
+			previewBlock = bakPreview;
+			break;
+		}
+		bakPreview = previewBlock;
+	}
+
+	IMAGE* previewImgs = Block::getPreviewImages();
+	for (int i = 0; i < 4; i++)
+	{
+		int x = leftMargin2 + previewBlock.smallBlocks[i].col * blockSize;  //左距离
+		int y = topMargin + previewBlock.smallBlocks[i].row * blockSize;
+		putimage(x, y, previewImgs);
+	}
+}
+
+void Tetris2::add1to2()
+{
+	if (add1 > 0) {
+		int t = 0;
+		if (add1 == 1 || add1 == 2 || add1 == 3) t = add1 - 1;
+		else t = 4;
+
+		for (int i = 0; i < rows - t; i++) {
+			for (int j = 0; j < cols; j++) {
+				map2[i][j] = map2[i + t][j];
+			}
+		}
+
+		for (int i = rows - t; i < rows; i++) {
+			for (int j = 0; j < cols; j++) {
+				map2[i][j] = 8;
+			}
+		}
+
+		int tt = rand() % cols;
+		for (int i = rows - t; i < rows; i++) {
+			map2[i][tt] = 0;
+		}
+
+		add1 = 0;
+	}
+}
+
+void Tetris2::add2to1()
+{
+	if (add2 > 0) {
+		int t = 0;
+		if (add2 == 1 || add2 == 2 || add2 == 3) t = add2 - 1;
+		else t = 4;
+
+		for (int i = 0; i < rows - t; i++) {
+			for (int j = 0; j < cols; j++) {
+				map1[i][j] = map1[i + t][j];
+			}
+		}
+
+		for (int i = rows - t; i < rows; i++) {
+			for (int j = 0; j < cols; j++) {
+				map1[i][j] = 8;
+			}
+		}
+
+		int tt = rand() % cols;
+		for (int i = rows - t; i < rows; i++) {
+			map1[i][tt] = 0;
+		}
+
+		add2 = 0;
+	}
+}
+

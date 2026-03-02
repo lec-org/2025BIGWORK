@@ -1,0 +1,30 @@
+#include"Tetris.h"
+#include"Tetris2.h"
+#include"choose.h"
+#include<stdlib.h>
+#include<time.h>
+#include<windows.h>
+
+int main(void) {
+
+	static HFONT hCustomFont = NULL;
+
+    if (hCustomFont == NULL)
+    {
+        AddFontResourceEx(_T("res/Geometos.ttf"), FR_PRIVATE, NULL);
+        hCustomFont = CreateFont(
+            30, 0, 0, 0, FW_NORMAL,
+            FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+            OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+            _T("Geometos")
+        );
+    }
+
+	srand((unsigned int)time(NULL));  //初始化随机数种子
+	initgraph(1500, 896);
+
+	choose::modechoose();
+
+	return 0;
+}

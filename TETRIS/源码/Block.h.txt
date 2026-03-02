@@ -1,0 +1,39 @@
+#pragma once
+#include <easyx.h>
+#include <vector>
+using namespace std;
+
+struct Point {
+	int row;
+	int col;
+};
+
+class Block
+{
+public:
+	Block(int blockSize);
+	Block();
+	void drop();
+	void moveLeftRight(int offset);
+	void rotate();
+	void draw(int leftMargin, int topMargin);
+	static IMAGE* getImages();
+	static IMAGE* getPreviewImages();
+	static IMAGE* getGarbageImage();
+	Block& operator = (const Block& other);
+	bool blockInMap(const vector<vector<int>>&map);
+	void solidify(vector<vector<int>>& map);
+	int getBlockType();
+
+	Point smallBlocks[4];
+	static int blockNums[7];
+	static int currentIndex;
+	void shuffleBlock();
+	int getRandomBlockType();
+
+private:
+	int blockType;
+	IMAGE *img;
+	static IMAGE* imgs[3];
+	int size;
+};

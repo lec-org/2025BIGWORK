@@ -1,0 +1,72 @@
+#pragma once
+#include<easyx.h>
+#include<vector>
+#include"Block.h"
+using namespace std;
+
+class Tetris2
+{
+public:
+	Tetris2(int rows, int cols, int left, int left2, int top, int blockSize);
+	void init();
+	void play();
+
+private:
+	void keyEvent(ExMessage);
+	void updateWindow();
+	int getDelay1();
+	int getDelay2();
+	void drop1();
+	void drop2();
+	void clearLine1();
+	void clearLine2();
+	void moveLeftRight1(int offset);
+	void moveLeftRight2(int offset);
+	void rotate1();
+	void rotate2();
+	void drawScore();
+	void checkOver();
+	void displayOver();
+	void dropToBottom1();
+	void dropToBottom2();
+	void drawDropPreview1();
+	void drawDropPreview2();
+	void add1to2();
+	void add2to1();
+
+private:
+	int delay1;
+	int delay2;
+	bool update1;
+	bool update2;
+	int add1;
+	int add2;
+
+	vector<vector<int>>map1;
+	vector<vector<int>>map2;
+	int rows;
+	int cols;
+	int leftMargin;
+	int leftMargin2;
+	int topMargin;
+	int blockSize;
+	IMAGE imgBg2;
+	IMAGE imgBeginBg;
+	IMAGE imgLeftReady;
+	IMAGE imgRightReady;
+	IMAGE imgAllReady;
+
+	Block* curBlock1;
+	Block* curBlock2;
+	Block* nextBlock1;
+	Block* nextBlock2;
+	Block bakBlock1;
+	Block bakBlock2;
+
+	int score1;
+	int score2;
+	int line1;
+	int line2;
+	bool gameOver;
+	bool alose;
+};
