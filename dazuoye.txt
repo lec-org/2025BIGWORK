@@ -1,0 +1,571 @@
+#include "raylib.h"
+#include <vector>
+#include <string>
+#include <algorithm> // 必须包含，用于 std::max
+
+using namespace std;
+
+// 游戏常量配置
+const int BOARD_WIDTH = 10;
+const int BOARD_HEIGHT = 20;
+const int CELL_SIZE = 30;
+
+const int SCREEN_WIDTH = 600;
+const int SCREEN_HEIGHT = 700;
+
+const int OFFSET_X = 50; // 棋盘在屏幕上的 X 偏移
+const int OFFSET_Y = 50; // 棋盘在屏幕上的 Y 偏移
+
+// 定义方块的颜色 (0: 空, 1-7: 不同形状的颜色)
+const Color COLORS[] = {
+    DARKGRAY,     // 0: Empty (背景)
+    SKYBLUE,      // 1: I
+    BLUE,         // 2: J
+    ORANGE,       // 3: L
+    YELLOW,       // 4: O
+    GREEN,        // 5: S
+    PURPLE,       // 6: T
+    RED           // 7: Z
+};
+
+// ==========================================
+// 方块结构体
+// ==========================================
+struct Piece {
+    int id;
+    vector<vector<int>> shape;
+    int x, y;
+};
+
+
+
+
+
+class TetrisGame {
+private:
+    int board[BOARD_HEIGHT][BOARD_WIDTH] = {0};
+    Piece currentPiece;
+    Piece nextPiece;
+    
+    int score = 0;
+    int level = 1;
+    int lines = 0;
+    bool gameOver = false;
+    bool isPaused = false;
+    
+    int bombsLeft = 3; // 炸弹技能剩余次数
+    
+// --- 音乐与节奏相关变量 ---
+// 设定 Energy Drink 的 BPM 节奏
+// 精度提升：每次 tick 为半拍 (八分音符)
+// 初始等级：每 4 个 tick (即 2 拍) 下
+// 频闪透明度落一格
+// 蹦迪霓虹色
+
+    Music bgm;
+    float bpm = 130.0f;
+    float secPerTick = 30.0f / bpm; 
+    float lastTickTime = 0.0f;
+    int tickCount = 0;
+    int ticksPerFall = 4;     
+    float strobeAlpha = 0.0f; 
+    Color borderColor = WHITE;
+    Color strobeColors[5] = { MAGENTA, SKYBLUE, YELLOW, GREEN, RED }; 
+
+    double fallTime = 0.0;
+    double fallInterval = 1.0;
+
+    // 获取特定类型的方块形状矩阵
+    vector<vector<int>> GetShapeData(int type) {
+        switch (type) {
+            case 1: return {{0,0,0,0}, {1,1,1,1}, {0,0,0,0}, {0,0,0,0}}; // I
+            case 2: return {{1,0,0}, {1,1,1}, {0,0,0}};                   // J
+            case 3: return {{0,0,1}, {1,1,1}, {0,0,0}};                   // L
+            case 4: return {{1,1}, {1,1}};                                // O
+            case 5: return {{0,1,1}, {1,1,0}, {0,0,0}};                   // S
+            case 6: return {{0,1,0}, {1,1,1}, {0,0,0}};                   // T
+            case 7: return {{1,1,0}, {0,1,1}, {0,0,0}};                   // Z
+            default: return {{1}};
+        }
+    }
+
+    // 随机生成一个新方块
+    Piece GetRandomPiece() {
+        Piece p;
+        p.id = GetRandomValue(1, 7);
+        p.shape = GetShapeData(p.id);
+        p.x = BOARD_WIDTH / 2 - p.shape[0].size() / 2;
+        p.y = 0;
+        return p;
+    }
+
+    // 碰撞检测核心逻辑
+    bool CheckCollision(int px, int py, const vector<vector<int>>& pShape) {
+        for (int i = 0; i < pShape.size(); i++) {
+            for (int j = 0; j < pShape[i].size(); j++) {
+                if (pShape[i][j]) {
+                    int nx = px + j;
+                    int ny = py + i;
+                    
+                    // 碰壁检测
+                    if (nx < 0 || nx >= BOARD_WIDTH || ny >= BOARD_HEIGHT) return true;
+                    // 碰已有方块检测
+                    if (ny >= 0 && board[ny][nx] != 0) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // 旋转矩阵
+    void RotatePiece() {
+        vector<vector<int>> temp = currentPiece.shape;
+        int n = temp.size();
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < n; j++) {
+                temp[i][j] = currentPiece.shape[n - 1 - j][i];
+            }
+        }
+        
+        // 尝试旋转，如果不碰撞则应用
+
+
+        if (!CheckCollision(currentPiece.x, currentPiece.y, temp)) {
+            currentPiece.shape = temp;
+        } 
+        // 简单的墙踢(Wall Kick)补偿
+
+
+        else if (!CheckCollision(currentPiece.x - 1, currentPiece.y, temp)) {
+            currentPiece.x -= 1;
+            currentPiece.shape = temp;
+        }
+        else if (!CheckCollision(currentPiece.x + 1, currentPiece.y, temp)) {
+            currentPiece.x += 1;
+            currentPiece.shape = temp;
+        }
+    }
+
+    // 锁定当前方块到棋盘
+    void LockPiece() {
+        for (int i = 0; i < currentPiece.shape.size(); i++) {
+            for (int j = 0; j < currentPiece.shape[i].size(); j++) {
+                if (currentPiece.shape[i][j]) {
+                    int ny = currentPiece.y + i;
+                    int nx = currentPiece.x + j;
+                    if (ny >= 0 && ny < BOARD_HEIGHT) {
+                        board[ny][nx] = currentPiece.id;
+                    }
+                }
+            }
+        }
+        
+        ClearLines();
+        
+        // 切换到下一个方块
+
+
+
+        currentPiece = nextPiece;
+        nextPiece = GetRandomPiece();
+        
+        // 出生就碰撞则游戏结束
+
+
+
+
+        if (CheckCollision(currentPiece.x, currentPiece.y, currentPiece.shape)) {
+            gameOver = true;
+        }
+    }
+
+    // 消除满行并计分
+    void ClearLines() {
+        int linesCleared = 0;
+        for (int i = BOARD_HEIGHT - 1; i >= 0; i--) {
+            bool isFull = true;
+            for (int j = 0; j < BOARD_WIDTH; j++) {
+                if (board[i][j] == 0) {
+                    isFull = false;
+                    break;
+                }
+            }
+            
+            if (isFull) {
+                linesCleared++;
+                // 将上面的行平移下来
+                for (int k = i; k > 0; k--) {
+                    for (int j = 0; j < BOARD_WIDTH; j++) {
+                        board[k][j] = board[k-1][j];
+                    }
+                }
+                // 最顶行清空
+                for (int j = 0; j < BOARD_WIDTH; j++) {
+                    board[0][j] = 0;
+                }
+                i++; // 再次检查当前行，因为上面掉下来了新数据
+            }
+        }
+        
+        if (linesCleared > 0) {
+            int points[] = {0, 100, 300, 500, 800};
+            score += points[linesCleared] * level;
+            lines += linesCleared;
+            level = (lines / 10) + 1; // 每消除10行升一级
+            
+            // max 被包含在 <algorithm> 里面
+            fallInterval = std::max(0.1, 1.0 - (level - 1) * 0.1); // 常规速度加快
+            
+            // 卡点速度加快 (每升一级减少 tick 数，最快半拍一格)
+            ticksPerFall = std::max(1, 5 - level); 
+        }
+    }
+
+    // 计算幽灵块的Y坐标
+    int GetGhostY() {
+        int ghostY = currentPiece.y;
+        while (!CheckCollision(currentPiece.x, ghostY + 1, currentPiece.shape)) {
+            ghostY++;
+        }
+        return ghostY;
+    }
+
+public:
+    TetrisGame() {
+        // 加载音乐: 先尝试在当前目录找
+        bgm = LoadMusicStream("energy_drink.mp3");
+        
+        // 如果在 build/ 目录下运行找不到，尝试去上一级根目录寻找
+        if (bgm.stream.buffer == NULL) {
+            bgm = LoadMusicStream("../energy_drink.mp3");
+        }
+
+        if (bgm.stream.buffer != NULL) {
+            PlayMusicStream(bgm);
+        }
+        Init();
+    }
+
+    ~TetrisGame() {
+        if (bgm.stream.buffer != NULL) {
+            UnloadMusicStream(bgm);
+        }
+    }
+
+    void Init() {
+        // 重置棋盘
+        for (int i = 0; i < BOARD_HEIGHT; i++) {
+            for (int j = 0; j < BOARD_WIDTH; j++) {
+                board[i][j] = 0;
+            }
+        }
+        currentPiece = GetRandomPiece();
+        nextPiece = GetRandomPiece();
+        score = 0;
+        level = 1;
+        lines = 0;
+        bombsLeft = 3;
+        gameOver = false;
+        isPaused = false;
+        
+        // --- 节奏相关初始化 ---
+        lastTickTime = 0.0f;
+        tickCount = 0;
+        ticksPerFall = 4; // 初始4个tick(2拍)落一格
+        strobeAlpha = 0.0f;
+        
+        if (bgm.stream.buffer != NULL) {
+            StopMusicStream(bgm);
+            PlayMusicStream(bgm);
+        }
+
+        fallTime = 0;
+        fallInterval = 1.0;
+    }
+  // 维持音乐流播放
+    void Update() {
+      
+        if (bgm.stream.buffer != NULL) {
+            UpdateMusicStream(bgm);
+        }
+
+        if (gameOver) {
+            if (IsKeyPressed(KEY_ENTER)) Init();
+            return;
+        }
+        
+        if (IsKeyPressed(KEY_P)) isPaused = !isPaused;
+        if (isPaused) return;
+
+        // 技能：使用炸弹
+        if (IsKeyPressed(KEY_B) && bombsLeft > 0) {
+            bombsLeft--;
+            currentPiece = nextPiece; 
+            nextPiece = GetRandomPiece();
+            fallTime = 0; 
+            // 直接丢弃当前块，切换下一个
+            
+            // 重置下落计时器
+            
+            // 如果切出来的方块直接碰撞了，也要判负
+            if (CheckCollision(currentPiece.x, currentPiece.y, currentPiece.shape)) {
+                gameOver = true;
+            }
+            return;
+        }
+
+        // 基础控制
+        if (IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_A)) {
+            if (!CheckCollision(currentPiece.x - 1, currentPiece.y, currentPiece.shape)) currentPiece.x--;
+        }
+        if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_D)) {
+            if (!CheckCollision(currentPiece.x + 1, currentPiece.y, currentPiece.shape)) currentPiece.x++;
+        }
+        if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W) || IsKeyPressed(KEY_X)) {
+            RotatePiece();
+        }
+        if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) {
+            if (!CheckCollision(currentPiece.x, currentPiece.y + 1, currentPiece.shape)) currentPiece.y++;
+        }
+        
+        // 空格瞬间下落 (Hard Drop)
+        if (IsKeyPressed(KEY_SPACE)) {
+            currentPiece.y = GetGhostY();
+            LockPiece();
+            fallTime = 0;
+        }
+
+        // --- 节奏频闪与卡点下落逻辑 ---
+        if (strobeAlpha > 0.0f) strobeAlpha -= GetFrameTime() * 2.5f; // 频闪自然衰减
+
+        if (bgm.stream.buffer != NULL) {
+            float currentTimePlayed = GetMusicTimePlayed(bgm);
+            
+            // 修正音乐循环播放时的时间轴差异
+            if (currentTimePlayed < lastTickTime - secPerTick) {
+                lastTickTime = currentTimePlayed; 
+            }
+            
+            // 使用 while 确保即便存在帧率波动也能精准补足节拍
+
+
+
+
+            while (currentTimePlayed - lastTickTime >= secPerTick) {
+                lastTickTime += secPerTick;
+                tickCount++;
+                
+
+                // 每 2 个 tick 是一整个重拍 (四分音符)，触发频闪
+
+
+
+                if (tickCount % 2 == 0) {
+                    strobeAlpha = 0.8f;
+                    borderColor = strobeColors[(tickCount / 2) % 5]; // 循环切换霓虹边框颜色
+                }
+                
+                // 完全按照 tick 卡点下落
+
+
+                if (tickCount % ticksPerFall == 0) {
+                    if (!CheckCollision(currentPiece.x, currentPiece.y + 1, currentPiece.shape)) {
+                        currentPiece.y++;
+                    } else {
+                        LockPiece();
+                    }
+                }
+            }
+        } else {
+
+
+            // 如果没找到音乐文件，回退到普通的时间自动下落逻辑
+
+
+
+            fallTime += GetFrameTime();
+            if (fallTime >= fallInterval) {
+                fallTime = 0;
+                if (!CheckCollision(currentPiece.x, currentPiece.y + 1, currentPiece.shape)) {
+                    currentPiece.y++;
+                } else {
+                    LockPiece();
+                }
+            }
+        }
+    }
+
+    void Draw() {
+        ClearBackground(GetColor(0x1a1a1aff)); 
+        // 深色背景
+        // --- 绘制频闪动态背景氛围 ---
+        if (strobeAlpha > 0) {
+            DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, Fade(borderColor, strobeAlpha * 0.08f));
+        }
+
+        // 1. 绘制棋盘背景和已锁定的方块
+
+
+
+        for (int i = 0; i < BOARD_HEIGHT; i++) {
+            for (int j = 0; j < BOARD_WIDTH; j++) {
+                int px = OFFSET_X + j * CELL_SIZE;
+                int py = OFFSET_Y + i * CELL_SIZE;
+                
+                if (board[i][j] == 0) {
+                    DrawRectangle(px, py, CELL_SIZE, CELL_SIZE, GetColor(0x2a2a2aff)); // 空格子
+                    DrawRectangleLines(px, py, CELL_SIZE, CELL_SIZE, GetColor(0x3a3a3aff));
+                } else {
+                    DrawRectangle(px, py, CELL_SIZE, CELL_SIZE, COLORS[board[i][j]]);
+                    DrawRectangleLines(px, py, CELL_SIZE, CELL_SIZE, Fade(WHITE, 0.3f));
+                }
+            }
+        }
+    
+        // --- 游戏界面的外边框 (替换为动态频闪边框) ---
+        // 随着拍子变粗
+
+
+        int borderThick = 2 + (int)(strobeAlpha * 6); 
+        Color currentBorder = (strobeAlpha > 0.2f) ? Fade(borderColor, strobeAlpha) : LIGHTGRAY;
+        Rectangle boardRect = { (float)OFFSET_X, (float)OFFSET_Y, (float)BOARD_WIDTH * CELL_SIZE, (float)BOARD_HEIGHT * CELL_SIZE };
+        DrawRectangleLinesEx(boardRect, borderThick, currentBorder);
+
+
+        // 2. 绘制幽灵块 (Ghost Piece)
+
+
+        
+        int ghostY = GetGhostY();
+        for (int i = 0; i < currentPiece.shape.size(); i++) {
+            for (int j = 0; j < currentPiece.shape[i].size(); j++) {
+                if (currentPiece.shape[i][j]) {
+                    int px = OFFSET_X + (currentPiece.x + j) * CELL_SIZE;
+                    int py = OFFSET_Y + (ghostY + i) * CELL_SIZE;
+
+                    // 画一个半透明的色块 + 线框
+
+                    DrawRectangle(px, py, CELL_SIZE, CELL_SIZE, Fade(COLORS[currentPiece.id], 0.2f));
+                    DrawRectangleLines(px, py, CELL_SIZE, CELL_SIZE, Fade(COLORS[currentPiece.id], 0.8f));
+                }
+            }
+        }
+
+        // 3. 绘制当前方块
+
+
+        for (int i = 0; i < currentPiece.shape.size(); i++) {
+            for (int j = 0; j < currentPiece.shape[i].size(); j++) {
+                if (currentPiece.shape[i][j]) {
+                    int px = OFFSET_X + (currentPiece.x + j) * CELL_SIZE;
+                    int py = OFFSET_Y + (currentPiece.y + i) * CELL_SIZE;
+                    DrawRectangle(px, py, CELL_SIZE, CELL_SIZE, COLORS[currentPiece.id]);
+                    DrawRectangleLines(px, py, CELL_SIZE, CELL_SIZE, Fade(WHITE, 0.5f));
+                }
+            }
+        }
+
+        // ==========================================
+        // UI 面板渲染 (右侧)
+        // ==========================================
+
+
+
+        int uiX = OFFSET_X + BOARD_WIDTH * CELL_SIZE + 40;
+        int uiY = OFFSET_Y;
+
+        // "下一个方块" 预言框
+        DrawText("NEXT PIECE", uiX, uiY, 20, LIGHTGRAY);
+        DrawRectangle(uiX, uiY + 30, 120, 120, GetColor(0x2a2a2aff));
+        DrawRectangleLines(uiX, uiY + 30, 120, 120, GRAY);
+        
+        for (int i = 0; i < nextPiece.shape.size(); i++) {
+            for (int j = 0; j < nextPiece.shape[i].size(); j++) {
+                if (nextPiece.shape[i][j]) {
+
+
+                    // 将小方块居中在 120x120 的框里，格子大小缩小为25
+
+
+                    int nCellSize = 25; 
+                    int offsetBoxX = uiX + 60 - (nextPiece.shape[0].size() * nCellSize) / 2;
+                    int offsetBoxY = uiY + 30 + 60 - (nextPiece.shape.size() * nCellSize) / 2;
+                    
+                    DrawRectangle(offsetBoxX + j * nCellSize, offsetBoxY + i * nCellSize, nCellSize, nCellSize, COLORS[nextPiece.id]);
+                    DrawRectangleLines(offsetBoxX + j * nCellSize, offsetBoxY + i * nCellSize, nCellSize, nCellSize, Fade(WHITE, 0.5f));
+                }
+            }
+        }
+
+        // 分数、等级、行数信息
+        uiY += 180;
+        DrawText("SCORE", uiX, uiY, 20, GRAY);
+        DrawText(TextFormat("%d", score), uiX, uiY + 25, 30, YELLOW);
+
+        uiY += 70;
+        DrawText("LEVEL", uiX, uiY, 20, GRAY);
+        DrawText(TextFormat("%d", level), uiX, uiY + 25, 30, WHITE);
+
+        uiY += 70;
+        DrawText("LINES", uiX, uiY, 20, GRAY);
+        DrawText(TextFormat("%d", lines), uiX, uiY + 25, 30, WHITE);
+
+        // 专属技能：炸弹
+        uiY += 80;
+        DrawText("SKILL: BOMB", uiX, uiY, 20, RED);
+        DrawRectangle(uiX, uiY + 25, 150, 40, (bombsLeft > 0) ? Fade(RED, 0.3f) : GetColor(0x3a3a3aff));
+        DrawRectangleLines(uiX, uiY + 25, 150, 40, (bombsLeft > 0) ? RED : GRAY);
+        
+        DrawText(TextFormat("PRESS 'B' x %d", bombsLeft), uiX + 15, uiY + 35, 18, (bombsLeft > 0) ? WHITE : GRAY);
+        DrawText("Destroys current piece", uiX, uiY + 70, 12, GRAY);
+
+        // 操作指南
+        uiY += 100;
+        DrawText("CONTROLS:", uiX, uiY, 15, LIGHTGRAY);
+        DrawText("ARROWS: Move & Rotate", uiX, uiY + 20, 12, GRAY);
+        DrawText("SPACE: Hard Drop", uiX, uiY + 35, 12, GRAY);
+        DrawText("B: Use Bomb", uiX, uiY + 50, 12, GRAY);
+        DrawText("P: Pause", uiX, uiY + 65, 12, GRAY);
+
+        // 蒙版提示：游戏结束或暂停
+        if (gameOver || isPaused) {
+            DrawRectangle(OFFSET_X, OFFSET_Y, BOARD_WIDTH * CELL_SIZE, BOARD_HEIGHT * CELL_SIZE, Fade(BLACK, 0.7f));
+            if (gameOver) {
+                DrawText("GAME OVER", OFFSET_X + 45, OFFSET_Y + 250, 35, RED);
+                DrawText("Press ENTER to restart", OFFSET_X + 30, OFFSET_Y + 300, 20, WHITE);
+            } else {
+                DrawText("PAUSED", OFFSET_X + 85, OFFSET_Y + 280, 35, WHITE);
+            }
+        }
+    }
+};
+
+// ==========================================
+// 主函数
+// ==========================================
+int main() {
+    // 开启窗口
+    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Tetris - Energy Rhythm Edition");
+    
+    // 初始化音频设备 
+
+
+    InitAudioDevice(); 
+    
+    SetTargetFPS(60);
+
+    TetrisGame game;
+
+    while (!WindowShouldClose()) {
+        game.Update();
+        
+        BeginDrawing();
+        game.Draw();
+        EndDrawing();
+    }
+
+    // 清理资源
+    CloseAudioDevice();
+    CloseWindow();
+    return 0;
+}
